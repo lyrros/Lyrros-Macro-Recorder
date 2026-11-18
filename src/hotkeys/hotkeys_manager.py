@@ -1,0 +1,155 @@
+from tkinter import messagebox
+
+from pynput import keyboard
+
+from utils.get_key_pressed import getKeyPressed, normalize_key
+from utils.keys import vk_nb
+
+
+class HotkeysManager:
+    def __init__(self, main_app):
+        self.keyboard_listener = keyboard.Listener(
+            on_press=self.__on_press,
+            on_release=self.__on_release,
+            win32_event_filter=self.__win32_event_filter,
+        )
+        self.main_app = main_app
+        self.settings = main_app.settings
+        self.hotkeys = []
+        self.hotkey_visible = []
+        self.hotkey_detection = set()
+        self._triggered_hotkeys = set()
+        self.macro = main_app.macro
+        self.hotkey_button = None
+        self.type_of_hotkey = None
+        self.entry_to_change = None
+        self.changeKey = False
+        self.index_to_change = 0
+        self.keyboard_listener.start()
+
+    def enable_hot_key_detection(self, type_of_hotkey, entry_to_change, index):
+        self.hotkey_button = entry_to_change
+        self.type_of_hotkey = type_of_hotkey
+        self.index_to_change = index
+        self.changeKey = True
+        self.entry_to_change = entry_to_change
+        self.entry_to_change.configure(text=self.main_app.text_content["options_menu"]["settings_menu"]["hotkeys_settings"]["please_key_text"])
+
+    def clear_hot_key(self, type, entry_to_change):
+        self.settings.change_settings("Hotkeys", type, None, [])
+        entry_to_change.configure(text="")
+
+    def __win32_event_filter(self, msg, data):
+        """Detect if key is pressed by real keyboard or pynput"""
+        if data.flags == 0x10:
+            if self.macro.playback and not self.macro.record:
+                return False
+            else:
+                return True
+
+    def __on_press(self, key):
+        userSettings = self.settings.settings_dict
+        if self.changeKey:
+            keyPressed = getKeyPressed(self.keyboard_listener, key)
+            if keyPressed is None:
+                return
+            keyPressed = normalize_key(keyPressed)
+            if keyPressed not in self.hotkeys:
+                if ">" in keyPressed:
+                    try:
+                        keyPressed = vk_nb[keyPressed]
+                    except KeyError:
+                        pass
+                self.hotkeys.append(keyPressed)
+                display = (
+                    keyPressed.replace("Key.", "")
+                    .replace("_l", "")
+                    .replace("_r", "")
+                    .replace("_gr", "")
+                )
+                self.hotkey_visible.append(display.upper())
+            self.hotkey_button.configure(text=self.hotkey_visible)
+
+            if all(keyword not in keyPressed for keyword in ["ctrl", "alt", "shift", "cmd"]):
+                if (
+                    self.type_of_hotkey == "Record_Start"
+                    and userSettings["Hotkeys"]["Playback_Start"] == self.hotkeys
+                    or self.type_of_hotkey == "Playback_Start"
+                    and userSettings["Hotkeys"]["Record_Start"] == self.hotkeys
+                ):
+                    messagebox.showerror(
+                        self.main_app.text_content["global"]["error"],
+                        self.main_app.text_content["options_menu"]["settings_menu"]["hotkeys_settings"]["error_hotkeys"],
+                    )
+                    self.entry_to_change.configure(text=self.main_app.text_content["options_menu"]["settings_menu"]["hotkeys_settings"]["please_key_text"])
+                    self.hotkeys = []
+                    self.hotkey_visible = []
+                    return
+                self.settings.change_settings(
+                    "Hotkeys", self.type_of_hotkey, None, self.hotkeys
+                )
+                self.changeKey = False
+                self.hotkeys = []
+                self.hotkey_visible = []
+
+        if not self.changeKey and not self.main_app.prevent_record:
+            keyPressed = getKeyPressed(self.keyboard_listener, key)
+            if keyPressed is None:
+                return
+            if ">" in keyPressed:
+                try:
+                    keyPressed = vk_nb[keyPressed]
+                except KeyError:
+                    pass
+
+            self.hotkey_detection.add(normalize_key(keyPressed))
+
+            hotkeys = userSettings["Hotkeys"]
+
+            if (
+                "Record_Start" not in self._triggered_hotkeys
+                and self.__is_hotkey_triggered(hotkeys["Record_Start"], self.hotkey_detection)
+                and not self.macro.record
+                and not self.macro.playback
+            ):
+                self._triggered_hotkeys.add("Record_Start")
+                self.macro.start_record(True)
+
+            elif (
+                "Record_Stop" not in self._triggered_hotkeys
+                and self.__is_hotkey_triggered(hotkeys["Record_Stop"], self.hotkey_detection)
+                and self.macro.record
+                and not self.macro.playback
+            ):
+                self._triggered_hotkeys.add("Record_Stop")
+                self.macro.stop_record()
+
+            elif (
+                "Playback_Start" not in self._triggered_hotkeys
+                and self.__is_hotkey_triggered(hotkeys["Playback_Start"], self.hotkey_detection)
+                and not self.macro.record
+                and not self.macro.playback
+                and self.main_app.macro_recorded
+            ):
+                self._triggered_hotkeys.add("Playback_Start")
+                self.macro.start_playback()
+
+            elif (
+                "Playback_Stop" not in self._triggered_hotkeys
+                and self.__is_hotkey_triggered(hotkeys["Playback_Stop"], self.hotkey_detection)
+                and not self.macro.record
+                and self.macro.playback
+            ):
+                self._triggered_hotkeys.add("Playback_Stop")
+                self.macro.stop_playback(True)
+
+    def __on_release(self, key):
+        key_released = getKeyPressed(self.keyboard_listener, key)
+        if key_released is not None:
+            self.hotkey_detection.discard(normalize_key(key_released))
+        self._triggered_hotkeys.clear()
+
+    def __is_hotkey_triggered(self, hotkey_config, detected_keys):
+        if not hotkey_config or not isinstance(hotkey_config, list):
+            return False
+        return {normalize_key(k) for k in hotkey_config}.issubset(detected_keys)
