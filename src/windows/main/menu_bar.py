@@ -5,7 +5,7 @@ from utils.record_file_management import RecordFileManagement
 from utils.startup_record import get_startup_record_path
 from windows.help.about import About
 from windows.options.playback import Delay, Repeat, Speed, TimeGui
-from windows.options.settings import AfterPlayBack, Hotkeys, SelectLanguage
+from windows.options.settings import Hotkeys, SelectLanguage
 from windows.others.donors import Donors
 from windows.others.translators import Translators
 
@@ -92,13 +92,15 @@ class MenuBar(Menu):
         self.options_sub.add_cascade(label=self.text_config["options_menu"]["settings_menu"]["minimization_text"], menu=minimization_sub)
         self.minimization_playing = BooleanVar(value=userSettings["Minimization"]["When_Playing"])
         self.minimization_record = BooleanVar(value=userSettings["Minimization"]["When_Recording"])
+        self.bring_to_front_after_recording = BooleanVar(
+            value=userSettings["Minimization"].get("Bring_to_Front_After_Recording", True)
+        )
         minimization_sub.add_checkbutton(label=self.text_config["options_menu"]["settings_menu"]["minimization_menu"]["minimization_when_playing_text"], variable=self.minimization_playing,
                                          command=lambda: settings.change_settings("Minimization", "When_Playing"))
         minimization_sub.add_checkbutton(label=self.text_config["options_menu"]["settings_menu"]["minimization_menu"]["minimization_when_recording_text"], variable=self.minimization_record,
                                          command=lambda: settings.change_settings("Minimization", "When_Recording"))
 
         # options_sub.add_checkbutton(label="Run on startup", variable=runStartUp, command=lambda: changeSettings("Run_On_StartUp"))
-        self.options_sub.add_command(label=self.text_config["options_menu"]["settings_menu"]["after_playback_text"], command=lambda: AfterPlayBack(self, parent))
 
         # Others Sub
         self.others_sub = Menu(self.options_menu, tearoff=0)

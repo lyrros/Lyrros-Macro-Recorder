@@ -1,25 +1,18 @@
-def _fmt_key(k):
-    s = str(k).replace("Key.", "").replace("'", "")
-    mac = {"<63>": "Fn", "<179>": "Fn", "<53>": "Esc", "<36>": "Return", "<48>": "Tab", "<49>": "Space", "<51>": "Delete", "<117>": "Forward Delete", "<123>": "Left Arrow", "<124>": "Right Arrow", "<125>": "Down Arrow", "<126>": "Up Arrow", "<122>": "F1", "<120>": "F2", "<99>": "F3", "<118>": "F4", "<96>": "F5", "<97>": "F6", "<98>": "F7", "<100>": "F8", "<101>": "F9", "<109>": "F10", "<103>": "F11", "<111>": "F12"}
-    if s in mac:
-        return mac[s]
-    if s.startswith("<") and s.endswith(">"):
-        return f"Key #{s[1:-1]}"
-    return s.replace("_l", "").replace("_r", "").capitalize()
+from utils.key_names import format_key_name as _fmt_key
 
 from datetime import datetime
-from os import getlogin, system
 from sys import platform
-from threading import Thread
-from time import sleep, time
+from threading import Event, Thread
+from time import time
 from tkinter import DISABLED, NORMAL, messagebox
 
 from pynput import keyboard, mouse
 from pynput.keyboard import Key  # FUTURE SELF: DON'T REMOVE THIS!!
 from pynput.mouse import Button
 
-from utils.get_key_pressed import getKeyPressed
+from utils.get_key_pressed import getKeyPressed, resolve_key_for_playback
 from utils.keys import vk_nb
+from utils.macos_keyboard_compat import prepare_pynput_keyboard_listener
 from utils.record_file_management import RecordFileManagement
 from utils.show_toast import show_notification_minim
 from utils.warning_pop_up_save import confirm_save
@@ -30,10 +23,13 @@ class Macro:
 
     def __init__(self, main_app):
         self.showEventsOnStatusBar = None
+        prepare_pynput_keyboard_listener()
         self.mouseControl = mouse.Controller()
         self.keyboardControl = keyboard.Controller()
         self.record = False
+        self.counting_down = False
         self.playback = False
+        self._playback_cancel = Event()
         self.macro_events = {}
         self.main_app = main_app
         self.user_settings = self.main_app.settings
@@ -55,6 +51,8 @@ class Macro:
     def start_record(self, by_hotkey=False):
         if self.main_app.prevent_record:
             return
+        if not self._macos_permissions_allow(recording=True):
+            return
         if not by_hotkey:
             if not self.main_app.macro_saved and self.main_app.macro_recorded:
                 wantToSave = confirm_save(self.main_app)
@@ -62,6 +60,13 @@ class Macro:
                     self.macro_file_management.save_macro()
                 elif wantToSave is None:
                     return
+        delay_sec = int(self.user_settings.settings_dict.get("Recordings", {}).get("Start_Delay", 0) or 0)
+        if delay_sec >= 1 and not self.counting_down:
+            self.counting_down = True
+            self.main_app.recordBtn.configure(image=self.main_app.stopImg, command=self.stop_record)
+            self.main_app.playBtn.configure(state=DISABLED)
+            self._run_countdown(delay_sec, by_hotkey)
+            return
         self.macro_events = {"events": []}
         self.record = True
         self.time = time()
@@ -107,11 +112,28 @@ class Macro:
             Thread(target=lambda: show_notification_minim(self.main_app)).start()
         print("record started")
 
+    def _run_countdown(self, remaining, by_hotkey=False):
+        if not self.counting_down:
+            return
+        if remaining <= 0:
+            self.counting_down = False
+            self.start_record(by_hotkey=True)
+            return
+        self.main_app.status_text.configure(text=f"Recording starts in {remaining}s... (Press Stop to cancel)")
+        self.main_app.after(1000, lambda: self._run_countdown(remaining - 1, by_hotkey))
+
     def stop_record(self):
+        if self.counting_down:
+            self.counting_down = False
+            self.main_app.recordBtn.configure(image=self.main_app.recordImg, command=self.start_record)
+            self.main_app.playBtn.configure(state=NORMAL if self.main_app.macro_recorded else DISABLED, command=self.start_playback)
+            self.main_app.status_text.configure(text="Recording countdown canceled")
+            return
         if not self.record:
             return
         userSettings = self.user_settings.settings_dict
         self.record = False
+        self.counting_down = False
         if self.mouseBeingListened:
             self.mouse_listener.stop()
             self.mouseBeingListened = False
@@ -135,12 +157,36 @@ class Macro:
         self.main_app.macro_recorded = True
         self.main_app.macro_saved = False
 
-        if userSettings["Minimization"]["When_Recording"]:
+        if userSettings["Minimization"].get("When_Recording", False):
             self.main_app.deiconify()
+        if userSettings["Minimization"].get("Bring_to_Front_After_Recording", True):
+            try:
+                self.main_app.after(100, self.main_app._bring_main_window_forward)
+            except Exception:
+                pass
 
         print("record stopped")
 
     def start_playback(self):
+        if self.playback:
+            return
+        if not self._macos_permissions_allow(recording=False):
+            return
+        events = self.macro_events.get("events", [])
+        if not events:
+            return
+        if platform.lower() == "darwin" and self._contains_cmd_q(events):
+            warning = (
+                "This macro contains Command+Q, which quits the frontmost macOS app. "
+                "Remove that keyboard shortcut from the action list before playing it."
+            )
+            try:
+                self.main_app.after(0, lambda: messagebox.showwarning("Playback blocked", warning))
+            except Exception:
+                pass
+            return
+
+        self._playback_cancel.clear()
         userSettings = self.user_settings.settings_dict
         self.playback = True
         self.main_app.playBtn.configure(
@@ -164,6 +210,60 @@ class Macro:
             Thread(target=self.__play_events).start()
         print("playback started")
 
+    def _macos_permissions_allow(self, recording):
+        if platform.lower() != "darwin":
+            return True
+
+        from windows.others.permissions_popup import check_macos_permissions
+
+        im_ok, post_ok = check_macos_permissions()
+        im_needs_restart = recording and getattr(
+            self.main_app, "macos_im_permission_missing_at_launch", False
+        )
+        post_needs_restart = not recording and getattr(
+            self.main_app, "macos_post_permission_missing_at_launch", False
+        )
+        if recording:
+            missing = not im_ok
+            restart_needed = im_needs_restart
+        else:
+            missing = not post_ok
+            restart_needed = post_needs_restart
+        if not missing and not restart_needed:
+            return True
+
+        if recording and not im_ok:
+            status = "Grant Input Monitoring access before recording."
+        elif not recording and not post_ok:
+            status = "Grant Event Control access before playback."
+        else:
+            action = "recording" if recording else "playback"
+            status = f"Permissions are granted. Click Restart to Apply before {action}."
+
+        try:
+            self.main_app.request_permissions_popup(status)
+        except Exception:
+            pass
+        return False
+
+    @staticmethod
+    def _contains_cmd_q(events):
+        pressed_keys = set()
+        for event in events:
+            if event.get("type") != "keyboardEvent":
+                continue
+            key = str(event.get("key", "")).strip().strip("'\"").casefold()
+            if key in {"key.cmd", "key.cmd_l", "key.cmd_r", "cmd", "command"}:
+                key = "cmd"
+            is_pressed = bool(event.get("pressed"))
+            if is_pressed and key == "q" and "cmd" in pressed_keys:
+                return True
+            if is_pressed:
+                pressed_keys.add(key)
+            else:
+                pressed_keys.discard(key)
+        return False
+
     def __play_interval(self):
         userSettings = self.user_settings.settings_dict
         if userSettings["Playback"]["Repeat"]["For"] > 0:
@@ -172,7 +272,8 @@ class Macro:
             self.__play_events()
         timer = time()
         while self.playback:
-            sleep(1)
+            if self._playback_cancel.wait(1):
+                return
             if time() - timer >= userSettings["Playback"]["Repeat"]["Interval"]:
                 if userSettings["Playback"]["Repeat"]["For"] > 0:
                     self.__play_for()
@@ -186,7 +287,7 @@ class Macro:
         debut = time()
         while self.playback and (time() - debut) < userSettings["Playback"]["Repeat"]["For"]:
             self.__play_events()
-        if userSettings["Playback"]["Repeat"]["Interval"] == 0:
+        if self.playback and userSettings["Playback"]["Repeat"]["Interval"] == 0:
             self.stop_playback()
 
     def __play_events(self):
@@ -214,19 +315,20 @@ class Macro:
             secondsToWait = userSettings["Playback"]["Repeat"]["Scheduled"] - seconds_since_midnight
             if secondsToWait < 0:
                 secondsToWait = 86400 + secondsToWait  # 86400 + -secondsToWait. Meaning it will happen tomorrow
-            sleep(secondsToWait)
+            if self._playback_cancel.wait(secondsToWait):
+                return
 
         repeat_count = 0
         now = time()
 
         while self.playback and (is_infinite or repeat_count < repeat_times):
             for events in range(len(self.macro_events["events"])):
-                elapsed_time = int(time() - now)
-                self.main_app.status_text.configure(
-                    text=f"Repeat: {repeat_count + 1}/{repeat_times}, Time elapsed: {elapsed_time}s")
                 if not self.playback:
                     self.unPressEverything(keyToUnpress)
                     return
+                elapsed_time = int(time() - now)
+                self.main_app.status_text.configure(
+                    text=f"Repeat: {repeat_count + 1}/{repeat_times}, Time elapsed: {elapsed_time}s")
 
                 timeSleep = (
                         self.macro_events["events"][events]["timestamp"]
@@ -234,7 +336,9 @@ class Macro:
                 )
                 if timeSleep < 0:
                     timeSleep = abs(timeSleep)
-                sleep(timeSleep)
+                if self._playback_cancel.wait(timeSleep) or not self.playback:
+                    self.unPressEverything(keyToUnpress)
+                    return
                 event_type = self.macro_events["events"][events]["type"]
 
                 if event_type == "cursorMove":  # Cursor Move
@@ -262,16 +366,7 @@ class Macro:
                 elif event_type == "keyboardEvent":  # Keyboard Press,Release
                     if self.macro_events["events"][events]["key"] is not None:
                         try:
-                            if "Key." not in self.macro_events["events"][events]["key"]:
-                                keyToPress = self.macro_events["events"][events]["key"]
-                            else:
-                                keyToPress = eval(self.macro_events["events"][events]["key"])
-                            if isinstance(keyToPress, str):
-                                if ">" in keyToPress:
-                                    try:
-                                        keyToPress = vk_nb[keyToPress]
-                                    except:
-                                        keyToPress = None
+                            keyToPress = resolve_key_for_playback(self.macro_events["events"][events]["key"])
                             if self.playback:
                                 if keyToPress is not None:
                                     if self.macro_events["events"][events]["pressed"]:
@@ -293,7 +388,9 @@ class Macro:
 
             if userSettings["Playback"]["Repeat"]["Delay"] > 0:
                 if is_infinite or repeat_count < repeat_times:
-                    sleep(userSettings["Playback"]["Repeat"]["Delay"])
+                    if self._playback_cancel.wait(userSettings["Playback"]["Repeat"]["Delay"]):
+                        self.unPressEverything(keyToUnpress)
+                        return
 
         self.unPressEverything(keyToUnpress)
         if userSettings["Playback"]["Repeat"]["Interval"] == 0 and userSettings["Playback"]["Repeat"]["For"] == 0 and repeat_count:
@@ -305,9 +402,11 @@ class Macro:
         for key in keyToUnpress:
             self.keyboardControl.release(key)
         self.mouseControl.release(Button.left)
+        self.mouseControl.release(Button.right)
         self.mouseControl.release(Button.middle)
 
     def stop_playback(self, playback_stopped_manually=False):
+        self._playback_cancel.set()
         self.playback = False
         if not playback_stopped_manually:
             print("playback stopped")
@@ -324,27 +423,11 @@ class Macro:
         self.main_menu.file_menu.entryconfig(self.main_app.text_content["file_menu"]["load_text"], state=NORMAL)
         if userSettings["Minimization"]["When_Playing"]:
             self.main_app.deiconify()
-        if userSettings["After_Playback"]["Mode"] != "Idle" and not playback_stopped_manually:
-            mode = userSettings["After_Playback"]["Mode"].lower()
-            delay_sec = int(userSettings["After_Playback"].get("Delay", 0))
-            for remaining in range(delay_sec, 0, -1):
-                if self.playback or self.record:
-                    return
-                try:
-                    self.main_app.status_badge.configure(text=f"⏳ {userSettings['After_Playback']['Mode']} in {remaining}s...")
-                except Exception:
-                    pass
-                sleep(1)
-            if mode in ("standby", "hibernate_if_enabled"):
-                system('osascript -e \'tell application "System Events" to sleep\'' if "darwin" in platform.lower() else "rundll32.exe powrprof.dll, SetSuspendState 0,1,0")
-            elif mode in ("log_off_computer", "log off computer"):
-                system('osascript -e \'tell application "System Events" to log out\'' if "darwin" in platform.lower() else "shutdown /l")
-            elif mode in ("turn_off_computer", "turn off computer"):
-                system('osascript -e \'tell application "System Events" to shut down\'' if "darwin" in platform.lower() else "shutdown /s /t 0")
-            elif mode in ("restart computer", "restart_computer"):
-                system('osascript -e \'tell application "System Events" to restart\'' if "darwin" in platform.lower() else "shutdown /r /t 0")
-            force_close = True
-            self.main_app.quit_software(force_close)
+        if playback_stopped_manually:
+            try:
+                self.main_app.after(100, self.main_app._bring_main_window_forward)
+            except Exception:
+                pass
 
     def import_record(self, record):
         self.macro_events = record

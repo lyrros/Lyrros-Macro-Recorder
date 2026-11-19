@@ -3,9 +3,24 @@ from tkinter.ttk import Button, Frame, Label
 from webbrowser import open as OpenUrl
 from windows.popup import Popup
 
-FORK_VERSION = "v1.0.7 (Beta)"
+FORK_VERSION = "v1.0.8 (Beta)"
 
 CHANGELOG_TEXT = (
+    'v1.0.8 (Beta)\n'
+    '• Updated Perms again: The permission screen now also shows Input Monitoring and the macOS permission used for sending playback events, also added a restart-to-apply button\n'
+    '• Added a bring app to front toggle option in settings: LMR will now bring the window to the front no matter what if you toggle this on\n'
+    '• Added step editor and improved the readability of some labels: Add/Edit Step has new UI, and action names and recording key names look less nerdy (I just made it more readable)\n'
+    '• Added an option to Export Settings: self explanatory (It\'s in Settings)\n'
+    '• Hotkey bug fix: Fixed an issue with stale key states, and the key used to set a hotkey isn\'t viewed as a live hotkey anymore\n'
+    '• Layout tweaks: Made the UI have less blank space, and a few minor touch ups you prob will never notice >:)\n'
+    '• Added full keyboard support: Dunno why it was removed previously, but now LMR should fully pick up your keyboard inputs!\n'
+    '• Added a new option for a Recording Start delay (WIP, may be improved)\n'
+    '• Overhauled the Step Reordering, Insertion, Editing & Range Trimming: Should now be much easier to read and use, you can also now move steps for the macro!\n'
+    '• New Macro File Format: instead of the legacy ".pmr" files leftover from PyMacroRecord, I\'ve switched them over to be ".lmr" instead. Compatibility still stays, you can still open .json\'s and .pmr\'s with this tweak.\n'
+    '• Overwrite config change: You will now be prompted whether to delete your macro entirely when you press the "clear" button to avoid any fatfingering.\n'
+    '• "After Playback" menu removed completely: After playback didn\'t have much practical use in the macro and really was just a leftover feature. If requested I\'ll repurpose it, but for now it\'s gone\n'
+    '• Version specific macOS App ID & Bigger Default Window: Made the default window 700x490 so all Recorded Action buttons fit into the UI. I also gave v1.0.8 its own unique macOS bundle ID (com.lyrros.macrorecorder.v1-0-8) so permissions register cleanly per version\n'
+    '\n'
     'v1.0.7 (Beta)\n'
     '• Reworked the janky, unreliable permission request screen when you first launch the app\n'
     '• Added "Lyrro\'s Macro Recorder GitHub" button to the About section (takes you to the repository)\n\n'
@@ -72,7 +87,7 @@ class ChangelogPopup(Popup):
 
 class About(Popup):
     def __init__(self, parent, main_app, version, updated):
-        super().__init__("About Lyrro's Macro Recorder", 500, 485, parent)
+        super().__init__("About Lyrro's Macro Recorder", 500, 430, parent)
         self.resizable(False, False)
         self.main_app = main_app
         self.main_app.about_window = self
@@ -92,12 +107,19 @@ class About(Popup):
         btns_wrap.pack(side="bottom", pady=(8, 16))
         top_row = Frame(btns_wrap)
         top_row.pack(side="top", pady=(0, 6))
-        Button(top_row, text="Lyrro's Macro Recorder Github", width=26, command=lambda: OpenUrl("https://github.com/lyrros/Lyrros-Macro-Recorder")).pack()
+        Button(top_row, text="Lyrro's Macro Recorder Github", width=23, command=lambda: OpenUrl("https://github.com/lyrros/Lyrros-Macro-Recorder")).pack()
         btns = Frame(btns_wrap)
         btns.pack(side="top")
-        Button(btns, text="Changelog", width=12, command=lambda: ChangelogPopup(self)).pack(side="left", padx=5)
-        Button(btns, text="Original GitHub", width=14, command=lambda: OpenUrl("https://github.com/LOUDO2/PyMacroRecord/releases")).pack(side="left", padx=5)
-        Button(btns, text="Close", width=10, command=self.destroy).pack(side="left", padx=5)
+        Button(btns, text="Changelog", width=11, command=lambda: ChangelogPopup(self)).pack(side="left", padx=4)
+        Button(btns, text="Original GitHub", width=12, command=lambda: OpenUrl("https://github.com/LOUDO2/PyMacroRecord/releases")).pack(side="left", padx=4)
+        Button(btns, text="Close", width=9, command=self.destroy).pack(side="left", padx=4)
+
+        self.update_idletasks()
+        height = max(380, self.winfo_reqheight() + 8)
+        width = 500
+        x = max(0, (self.winfo_screenwidth() - width) // 2)
+        y = max(0, (self.winfo_screenheight() - height) // 2)
+        self.geometry(f"{width}x{height}+{x}+{y}")
 
         main_app.prevent_record = True
         self.wait_window()

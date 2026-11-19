@@ -32,6 +32,10 @@ class Popup(Toplevel):
         self.resizable(False, False)
         if platform == "win32":
             self.attributes("-toolwindow", 1)
+        elif platform == "darwin":
+            # Keep dialogs above their parent while Lyrro's Macro Recorder is
+            # active, without pinning them above other applications.
+            self.transient(parent)
         else:
             self.attributes("-topmost", 1)
         self.grab_set()

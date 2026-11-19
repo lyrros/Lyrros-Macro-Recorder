@@ -1,3 +1,4 @@
+import time
 from tkinter import messagebox
 
 from pynput import keyboard
@@ -17,7 +18,7 @@ class HotkeysManager:
         self.settings = main_app.settings
         self.hotkeys = []
         self.hotkey_visible = []
-        self.hotkey_detection = set()
+        self.hotkey_detection = {}
         self._triggered_hotkeys = set()
         self.macro = main_app.macro
         self.hotkey_button = None
@@ -46,6 +47,12 @@ class HotkeysManager:
                 return False
             else:
                 return True
+
+    def _prune_stale_keys(self):
+        now = time.monotonic()
+        stale = [k for k, ts in self.hotkey_detection.items() if now - ts > 2.0]
+        for k in stale:
+            del self.hotkey_detection[k]
 
     def __on_press(self, key):
         userSettings = self.settings.settings_dict
@@ -91,6 +98,7 @@ class HotkeysManager:
                 self.changeKey = False
                 self.hotkeys = []
                 self.hotkey_visible = []
+                return  # Do not process the binding key as a live hotkey.
 
         if not self.changeKey and not self.main_app.prevent_record:
             keyPressed = getKeyPressed(self.keyboard_listener, key)
@@ -102,13 +110,22 @@ class HotkeysManager:
                 except KeyError:
                     pass
 
-            self.hotkey_detection.add(normalize_key(keyPressed))
+            self._prune_stale_keys()
+            norm_key = normalize_key(keyPressed)
+            self.hotkey_detection[norm_key] = time.monotonic()
+            detected_keys = set(self.hotkey_detection.keys())
+
+            # Do not trigger macro actions on the macOS Command+Q shortcut.
+            if "Key.cmd" in detected_keys and any(
+                str(k).casefold() == "q" for k in detected_keys
+            ):
+                return
 
             hotkeys = userSettings["Hotkeys"]
 
             if (
                 "Record_Start" not in self._triggered_hotkeys
-                and self.__is_hotkey_triggered(hotkeys["Record_Start"], self.hotkey_detection)
+                and self.__is_hotkey_triggered(hotkeys["Record_Start"], detected_keys)
                 and not self.macro.record
                 and not self.macro.playback
             ):
@@ -117,7 +134,7 @@ class HotkeysManager:
 
             elif (
                 "Record_Stop" not in self._triggered_hotkeys
-                and self.__is_hotkey_triggered(hotkeys["Record_Stop"], self.hotkey_detection)
+                and self.__is_hotkey_triggered(hotkeys["Record_Stop"], detected_keys)
                 and self.macro.record
                 and not self.macro.playback
             ):
@@ -126,7 +143,7 @@ class HotkeysManager:
 
             elif (
                 "Playback_Start" not in self._triggered_hotkeys
-                and self.__is_hotkey_triggered(hotkeys["Playback_Start"], self.hotkey_detection)
+                and self.__is_hotkey_triggered(hotkeys["Playback_Start"], detected_keys)
                 and not self.macro.record
                 and not self.macro.playback
                 and self.main_app.macro_recorded
@@ -136,7 +153,7 @@ class HotkeysManager:
 
             elif (
                 "Playback_Stop" not in self._triggered_hotkeys
-                and self.__is_hotkey_triggered(hotkeys["Playback_Stop"], self.hotkey_detection)
+                and self.__is_hotkey_triggered(hotkeys["Playback_Stop"], detected_keys)
                 and not self.macro.record
                 and self.macro.playback
             ):
@@ -146,10 +163,18 @@ class HotkeysManager:
     def __on_release(self, key):
         key_released = getKeyPressed(self.keyboard_listener, key)
         if key_released is not None:
-            self.hotkey_detection.discard(normalize_key(key_released))
-        self._triggered_hotkeys.clear()
+            norm_key = normalize_key(key_released)
+            self.hotkey_detection.pop(norm_key, None)
+            hotkeys = self.settings.settings_dict.get("Hotkeys", {})
+            for hk_name in list(self._triggered_hotkeys):
+                hk_keys = {normalize_key(k) for k in hotkeys.get(hk_name, [])}
+                if norm_key in hk_keys or not hk_keys:
+                    self._triggered_hotkeys.discard(hk_name)
+        else:
+            self._triggered_hotkeys.clear()
 
     def __is_hotkey_triggered(self, hotkey_config, detected_keys):
         if not hotkey_config or not isinstance(hotkey_config, list):
             return False
-        return {normalize_key(k) for k in hotkey_config}.issubset(detected_keys)
+        required = {normalize_key(k) for k in hotkey_config}
+        return required == detected_keys

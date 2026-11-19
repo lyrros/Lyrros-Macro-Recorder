@@ -74,14 +74,10 @@ class UserSettings:
             "Minimization": {
                 "When_Playing": False,
                 "When_Recording": False,
+                "Bring_to_Front_After_Recording": True,
             },
 
             "Run_On_StartUp": False,
-
-            "After_Playback": {
-                "Mode": "Idle"
-                # Quit, Lock Computer, Lof off computer, Turn off computer, Restart Computer, Standby, Hibernate
-            },
 
             "Language": "en",
             "Time_string": "PM",
@@ -167,4 +163,9 @@ class UserSettings:
             userSettings["Loading"] = {}
             if "Always_import_macro_settings" not in userSettings["Loading"]:
                 userSettings["Loading"]["Always_import_macro_settings"] = False
+        userSettings.setdefault("Minimization", {})
+        userSettings["Minimization"].setdefault("When_Playing", False)
+        userSettings["Minimization"].setdefault("When_Recording", False)
+        userSettings["Minimization"].setdefault("Bring_to_Front_After_Recording", True)
+        userSettings.pop("After_Playback", None)
         self.update_settings()

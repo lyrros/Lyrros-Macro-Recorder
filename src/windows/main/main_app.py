@@ -15,20 +15,32 @@ from pystray import Icon, MenuItem
 from hotkeys.hotkeys_manager import HotkeysManager
 from macro import Macro
 from utils.get_file import resource_path
+from utils.key_names import format_key_name
 from utils.record_file_management import RecordFileManagement
 from utils.startup_record import get_startup_record_path
 from utils.user_settings import UserSettings
 from utils.version import Version
 from windows.main.menu_bar import MenuBar
+from windows.others.step_editor import STEP_TYPE_LABELS
 from windows.others.new_ver_avalaible import NewVerAvailable
 from windows.window import Window
 
 
 class MainApp(Window):
     def __init__(self):
-        super().__init__("Lyrro's Macro Recorder", 680, 515)
+        super().__init__("Lyrro's Macro Recorder", 700, 490)
         self.resizable(True, True)
         self.settings = UserSettings(self)
+        self._permissions_popup_open = False
+        self._permissions_popup_pending = False
+        self.macos_im_permission_missing_at_launch = False
+        self.macos_post_permission_missing_at_launch = False
+        if sys.platform == "darwin":
+            from windows.others.permissions_popup import check_macos_permissions
+
+            im_ok, post_ok = check_macos_permissions()
+            self.macos_im_permission_missing_at_launch = not im_ok
+            self.macos_post_permission_missing_at_launch = not post_ok
         self.load_language()
         self.version = Version(self.settings.settings_dict, self)
         self.menu = MenuBar(self)
@@ -40,7 +52,7 @@ class MainApp(Window):
         self.prevent_record = False
 
         top_bar = Frame(self)
-        top_bar.pack(fill=X, padx=14, pady=(10, 4))
+        top_bar.pack(fill=X, padx=12, pady=(7, 2))
         self.status_badge = Label(top_bar, text="● READY", font=("Helvetica Neue", 13, "bold"), foreground="#4CAF50")
         self.status_badge.pack(side=LEFT)
 
@@ -50,7 +62,7 @@ class MainApp(Window):
         self.file_lbl.pack(side=RIGHT, padx=(0, 14))
 
         info_bar = Frame(self)
-        info_bar.pack(fill=X, padx=14, pady=(2, 6))
+        info_bar.pack(fill=X, padx=12, pady=(0, 3))
         self.coord_lbl = Label(info_bar, text="Cursor: X=0 Y=0", font=("Helvetica Neue", 13))
         self.coord_lbl.pack(side=LEFT)
 
@@ -79,14 +91,14 @@ class MainApp(Window):
         bottom_bar.pack(side=BOTTOM, fill=X)
         self.status_text = Label(bottom_bar, text="Ready", relief="flat", anchor=W, padding=(10, 4), font=("Helvetica Neue", 11), foreground="#b0b0b0")
         self.status_text.pack(side=LEFT, fill=X, expand=True)
-        ver_lbl = Label(bottom_bar, text="v1.0.7", relief="flat", anchor="e", padding=(10, 4), font=("Helvetica Neue", 11, "bold"), foreground="#8e8e8e", cursor="pointinghand")
+        ver_lbl = Label(bottom_bar, text="v1.0.8", relief="flat", anchor="e", padding=(10, 4), font=("Helvetica Neue", 11, "bold"), foreground="#8e8e8e", cursor="pointinghand")
         ver_lbl.pack(side=RIGHT)
 
         self.playImg = PhotoImage(file=resource_path(path.join("assets", "button", "play.png")))
         self.recordImg = PhotoImage(file=resource_path(path.join("assets", "button", "record.png")))
         self.stopImg = PhotoImage(file=resource_path(path.join("assets", "button", "stop.png")))
         self.center_frame = Frame(self)
-        self.center_frame.pack(fill=X, pady=2)
+        self.center_frame.pack(pady=2)
 
         class FramedIconBtn:
             def __init__(btn, parent, image, default_text, command=None, state="normal"):
@@ -154,21 +166,28 @@ class MainApp(Window):
             self.macro_saved = True
         else:
             self.playBtn = FramedIconBtn(self.center_frame, self.playImg, "Play", state="disabled")
-        self.playBtn.pack(side=LEFT, padx=75)
+        self.playBtn.pack(side=LEFT, padx=24)
 
         self.recordBtn = FramedIconBtn(self.center_frame, self.recordImg, "Record", command=self.macro.start_record, state="normal")
-        self.recordBtn.pack(side=RIGHT, padx=75)
+        self.recordBtn.pack(side=LEFT, padx=24)
 
         record_management = RecordFileManagement(self, self.menu)
         self.bind("<Control-Shift-S>", record_management.save_macro_as)
 
         list_hdr = Frame(self)
         list_hdr.pack(fill=X, padx=14, pady=(6, 2))
-        self.steps_lbl = Label(list_hdr, text="Recorded Actions (0 steps):", font=("Helvetica Neue", 13, "bold"))
+        list_title_row = Frame(list_hdr)
+        list_title_row.pack(fill=X)
+        self.steps_lbl = Label(list_title_row, text="Recorded Actions (0 steps):", font=("Helvetica Neue", 13, "bold"))
         self.steps_lbl.pack(side=LEFT)
-        Button(list_hdr, text="Delete Step", width=10, command=self._delete_selected_step).pack(side=RIGHT)
-        Button(list_hdr, text="Trim Moves", width=10, command=self._trim_cursor_moves).pack(side=RIGHT, padx=4)
-        Button(list_hdr, text="Clear", width=7, command=self._clear_macro).pack(side=RIGHT)
+        step_toolbar = Frame(list_hdr)
+        step_toolbar.pack(pady=(3, 0))
+        Button(step_toolbar, text="Clear", width=6, command=self._clear_macro).pack(side=LEFT, padx=(0, 4))
+        Button(step_toolbar, text="↑", width=2, command=lambda: self._move_selected_step(-1)).pack(side=LEFT, padx=2)
+        Button(step_toolbar, text="↓", width=2, command=lambda: self._move_selected_step(1)).pack(side=LEFT, padx=2)
+        Button(step_toolbar, text="+ Add", width=5, command=self._add_step_popup).pack(side=LEFT, padx=2)
+        Button(step_toolbar, text="Trim Moves", width=10, command=self._trim_cursor_moves).pack(side=LEFT, padx=2)
+        Button(step_toolbar, text="Delete Step", width=10, command=self._delete_selected_step).pack(side=LEFT, padx=2)
 
         list_border = TkFrame(self, bg="#3c3c3c", padx=1, pady=1)
         list_border.pack(expand=True, fill=BOTH, padx=14, pady=4)
@@ -185,7 +204,8 @@ class MainApp(Window):
             y2 = min(h - 2, max(y1 + 18, int(hi * h) - 2))
             sb.create_rectangle(2, y1, 8, y2, fill="#5c5c5c", outline="")
 
-        self.action_list = Listbox(list_frame, yscrollcommand=_upd_sb, bg="#1e1e1e", fg="#e0e0e0", selectbackground="#2b5b84", font=("Helvetica Neue", 11), height=4, highlightthickness=0, bd=0)
+        self.action_list = Listbox(list_frame, selectmode="extended", yscrollcommand=_upd_sb, bg="#1e1e1e", fg="#e0e0e0", selectbackground="#2b5b84", font=("Helvetica Neue", 11), height=4, highlightthickness=0, bd=0)
+        self.action_list.bind("<Double-Button-1>", lambda e: self._edit_selected_step())
         self.action_list.pack(side=LEFT, expand=True, fill=BOTH)
         sb.bind("<Configure>", lambda e: _upd_sb(*self.action_list.yview()))
         sb.bind("<B1-Motion>", lambda e: self.action_list.yview_moveto(max(0.0, min(1.0, e.y / max(1, sb.winfo_height())))))
@@ -203,7 +223,7 @@ class MainApp(Window):
         from windows.help.about import About
         bar1 = Frame(self)
         bar1.pack(side="bottom", pady=(2, 4))
-        for lbl, fn in [("Speed", lambda: Speed(self, self)), ("Delay", lambda: Delay(self, self)), ("Hotkeys", lambda: Hotkeys(self, self)), ("Settings", lambda: SettingsPopup(self, self))]:
+        for lbl, fn in [("Speed", lambda: Speed(self, self)), ("Loop Delay", lambda: Delay(self, self)), ("Rec Delay", lambda: __import__("windows.options.recording.start_delay", fromlist=["StartDelay"]).StartDelay(self, self)), ("Hotkeys", lambda: Hotkeys(self, self)), ("Settings", lambda: SettingsPopup(self, self))]:
             Button(bar1, text=lbl, width=10, command=fn).pack(side=LEFT, padx=4)
 
         for cls_name in ("TButton", "Button", "TCheckbutton", "Checkbutton"):
@@ -222,9 +242,9 @@ class MainApp(Window):
 
         from windows.others.permissions_popup import PermissionsPopup, check_macos_permissions
         if sys.platform == "darwin" and not self.settings.settings_dict.get("Others", {}).get("Skip_perm_prompt", False):
-            ax_ok, im_ok = check_macos_permissions()
-            if not (ax_ok and im_ok):
-                self.after(250, lambda: PermissionsPopup(self, self))
+            im_ok, post_ok = check_macos_permissions()
+            if not (im_ok and post_ok):
+                self.after(250, lambda: self.show_permissions_popup(startup=True))
 
         self.protocol("WM_DELETE_WINDOW", self.quit_software)
         try:
@@ -234,8 +254,53 @@ class MainApp(Window):
         self._last_ev_sig = None
         self._refresh_coords()
         self._refresh_dashboard()
-        self.geometry("680x515")
+        self.geometry("700x490")
+        if sys.platform == "darwin":
+            self.after(100, self._bring_main_window_forward)
         self.mainloop()
+
+    def _bring_main_window_forward(self):
+        if sys.platform == "darwin":
+            try:
+                from AppKit import NSApplication, NSApplicationActivationPolicyRegular
+                ns_app = NSApplication.sharedApplication()
+                ns_app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
+                ns_app.activateIgnoringOtherApps_(True)
+            except Exception:
+                pass
+        try:
+            self.deiconify()
+            self.lift()
+            self.focus_force()
+        except Exception:
+            pass
+
+    def show_permissions_popup(self, startup=False):
+        if self._permissions_popup_open:
+            return
+        from windows.others.permissions_popup import PermissionsPopup
+
+        self._permissions_popup_open = True
+        try:
+            PermissionsPopup(self, self, startup=startup)
+        finally:
+            self._permissions_popup_open = False
+
+    def request_permissions_popup(self, status=None):
+        if self._permissions_popup_open or self._permissions_popup_pending:
+            return
+        self._permissions_popup_pending = True
+
+        def open_popup():
+            self._permissions_popup_pending = False
+            if status:
+                self.status_text.configure(text=status)
+            self.show_permissions_popup(startup=False)
+
+        try:
+            self.after(0, open_popup)
+        except Exception:
+            self._permissions_popup_pending = False
 
     def _toggle_infinite(self, save=True):
         inf = self.inf_var.get()
@@ -271,18 +336,54 @@ class MainApp(Window):
 
     def _trim_cursor_moves(self):
         evs = self.macro.macro_events.get("events", [])
-        self.macro.macro_events["events"] = [e for e in evs if e.get("type") != "cursorMove"]
+        sel = set(self.action_list.curselection())
+        if len(sel) >= 2:
+            lo, hi = min(sel), max(sel)
+            self.macro.macro_events["events"] = [e for i, e in enumerate(evs) if not (lo <= i <= hi and e.get("type") == "cursorMove")]
+        else:
+            self.macro.macro_events["events"] = [e for e in evs if e.get("type") != "cursorMove"]
+        self.macro_saved = False
         self._last_ev_sig = None
+
+    def _move_selected_step(self, delta):
+        sel = self.action_list.curselection()
+        if len(sel) != 1:
+            return
+        idx = sel[0]
+        evs = self.macro.macro_events.get("events", [])
+        new_idx = idx + delta
+        if 0 <= idx < len(evs) and 0 <= new_idx < len(evs):
+            evs[idx], evs[new_idx] = evs[new_idx], evs[idx]
+            self.macro_saved = False
+            self._last_ev_sig = None
+
+    def _add_step_popup(self):
+        from windows.others.step_editor import StepEditor
+        StepEditor(self, self)
+
+    def _edit_selected_step(self):
+        sel = self.action_list.curselection()
+        if len(sel) != 1:
+            return
+        idx = sel[0]
+        evs = self.macro.macro_events.get("events", [])
+        if 0 <= idx < len(evs):
+            from windows.others.step_editor import StepEditor
+            StepEditor(self, self, step_index=idx, existing_step=evs[idx])
 
     def _delete_selected_step(self):
         sel = self.action_list.curselection()
         if not sel:
             return
-        idx = sel[0]
         evs = self.macro.macro_events.get("events", [])
-        if 0 <= idx < len(evs):
-            evs.pop(idx)
+        valid_indices = [idx for idx in sel if 0 <= idx < len(evs)]
+        if valid_indices:
+            for idx in reversed(valid_indices):
+                evs.pop(idx)
+            self.macro_recorded = bool(evs)
+            self.macro_saved = False
             self._last_ev_sig = None
+            self.playBtn.configure(state=NORMAL if evs else DISABLED, command=self.macro.start_playback)
 
     def _refresh_coords(self):
         try:
@@ -294,23 +395,7 @@ class MainApp(Window):
 
     @staticmethod
     def _fmt_key(k):
-        s = str(k).strip("'")
-        vk_map = {
-            "<63>": "Fn", "63": "Fn",
-            "<179>": "Fn", "179": "Fn",
-            "Key.cmd": "Cmd", "Key.cmd_l": "Cmd", "Key.cmd_r": "Cmd",
-            "Key.ctrl": "Ctrl", "Key.ctrl_l": "Ctrl", "Key.ctrl_r": "Ctrl",
-            "Key.alt": "Option", "Key.alt_l": "Option", "Key.alt_r": "Option", "Key.alt_gr": "Option",
-            "Key.shift": "Shift", "Key.shift_l": "Shift", "Key.shift_r": "Shift",
-            "Key.space": "Space", "Key.enter": "Return", "Key.backspace": "Delete",
-            "Key.tab": "Tab", "Key.esc": "Esc", "Key.caps_lock": "CapsLock",
-            "Key.up": "Up", "Key.down": "Down", "Key.left": "Left", "Key.right": "Right",
-        }
-        if s in vk_map:
-            return vk_map[s]
-        if s.startswith("Key."):
-            return s[4:].upper()
-        return s
+        return format_key_name(k)
 
     def _refresh_dashboard(self):
         if self.macro.record:
@@ -332,8 +417,12 @@ class MainApp(Window):
                 ts = round(e.get("timestamp", 0), 2)
                 if t == "cursorMove":
                     txt = f"{i+1}. Move ({int(e.get('x',0))}, {int(e.get('y',0))})  [{ts}s]"
-                elif "Event" in t and "x" in e:
-                    txt = f"{i+1}. {t} ({int(e.get('x',0))}, {int(e.get('y',0))}) {'Down' if e.get('pressed') else 'Up'}  [{ts}s]"
+                elif t in ("leftClickEvent", "rightClickEvent", "middleClickEvent"):
+                    label = STEP_TYPE_LABELS.get(t, t)
+                    txt = f"{i+1}. {label} ({int(e.get('x',0))}, {int(e.get('y',0))}) {'Down' if e.get('pressed') else 'Up'}  [{ts}s]"
+                elif t == "scrollEvent":
+                    label = STEP_TYPE_LABELS.get(t, t)
+                    txt = f"{i+1}. {label} ({int(e.get('dx',0))}, {int(e.get('dy',0))})  [{ts}s]"
                 elif t == "keyboardEvent":
                     txt = f"{i+1}. Key {self._fmt_key(e.get('key',''))} {'Down' if e.get('pressed') else 'Up'}  [{ts}s]"
                 else:
@@ -367,6 +456,14 @@ class MainApp(Window):
             except Exception:
                 pass
             return
+        try:
+            if getattr(self, "macro", None):
+                if self.macro.playback:
+                    self.macro.stop_playback(True)
+                if self.macro.record or self.macro.counting_down:
+                    self.macro.stop_record()
+        except Exception:
+            pass
         try:
             self.destroy()
         except Exception:

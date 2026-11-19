@@ -10,12 +10,12 @@ To play a recording, you just need to click on the green play icon.
 
 # Save, Load and clear a record
 To save a record, you can do `ctrl + s` or by clicking on `File` and `Save` or `Save as` and it will open a file explorer (if you haven't already saved yet).
-From there you can choose you favorite path to save your record. You can either save it by `.pmr` extension (recommended) or by `.json` extension.
+From there you can choose your favorite path to save your record. Save it as `.lmr` (recommended) or `.json`. Existing `.pmr` files can still be loaded and are saved as `.lmr` when you use Save.
 
 To load a record, you have two possibilities.
-1. Open the a `.pmr` file
+1. Open a `.lmr` file, a legacy `.pmr` file, or a `.json` file
 2. In the software, do `ctrl + l` or click on `File` and `Load` and it will open a file explorer.\
-From there, choose the record you want to play (json and `.pmr` files only)
+From there, choose the record you want to play (`.lmr`, `.pmr`, and `.json` files are supported)
 
 Finally, to start a new record and delete the last one, you can do `ctrl + n` or by clicking on `File` and `New`.
 And you'll have the software as if you were opening it for the first time.

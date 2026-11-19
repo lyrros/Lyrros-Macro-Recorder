@@ -5,7 +5,9 @@ _MODIFIER_NORMALIZE = {
     "Key.ctrl_r":  "Key.ctrl",
     "Key.shift_l": "Key.shift",
     "Key.shift_r": "Key.shift",
+    "Key.alt_l":   "Key.alt",
     "Key.alt_r":   "Key.alt",
+    "Key.cmd_l":   "Key.cmd",
     "Key.cmd_r":   "Key.cmd",
 }
 
@@ -39,3 +41,26 @@ def getKeyPressed(keyboardListener, key):
             if keyPressed == "'^'":
                 keyPressed = "^"
     return keyPressed
+
+
+def resolve_key_for_playback(raw_key):
+    if raw_key is None:
+        return None
+    from pynput.keyboard import Key, KeyCode
+    from utils.keys import vk_nb
+    s = str(raw_key).strip()
+    if not s:
+        return None
+    if s in vk_nb:
+        return vk_nb[s]
+    if s.startswith("<") and s.endswith(">") and s[1:-1].isdigit():
+        return KeyCode.from_vk(int(s[1:-1]))
+    if s.startswith("Key."):
+        attr = s.split(".", 1)[1]
+        if hasattr(Key, attr):
+            return getattr(Key, attr)
+        base = attr.replace("_l", "").replace("_r", "")
+        return getattr(Key, base, None)
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in ("'", '"'):
+        s = s[1:-1]
+    return s if len(s) == 1 else None
