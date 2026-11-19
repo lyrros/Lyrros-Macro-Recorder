@@ -79,7 +79,7 @@ class MainApp(Window):
         bottom_bar.pack(side=BOTTOM, fill=X)
         self.status_text = Label(bottom_bar, text="Ready", relief="flat", anchor=W, padding=(10, 4), font=("Helvetica Neue", 11), foreground="#b0b0b0")
         self.status_text.pack(side=LEFT, fill=X, expand=True)
-        ver_lbl = Label(bottom_bar, text="v1.0.6", relief="flat", anchor="e", padding=(10, 4), font=("Helvetica Neue", 11, "bold"), foreground="#8e8e8e", cursor="pointinghand")
+        ver_lbl = Label(bottom_bar, text="v1.0.7", relief="flat", anchor="e", padding=(10, 4), font=("Helvetica Neue", 11, "bold"), foreground="#8e8e8e", cursor="pointinghand")
         ver_lbl.pack(side=RIGHT)
 
         self.playImg = PhotoImage(file=resource_path(path.join("assets", "button", "play.png")))
@@ -353,6 +353,8 @@ class MainApp(Window):
 
 
     def _has_open_modal(self):
+        if getattr(self, "allow_quit_on_startup_perms", False):
+            return False
         if getattr(self, "prevent_record", False):
             return True
         from tkinter import Toplevel

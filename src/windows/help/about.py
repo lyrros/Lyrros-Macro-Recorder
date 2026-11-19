@@ -3,44 +3,53 @@ from tkinter.ttk import Button, Frame, Label
 from webbrowser import open as OpenUrl
 from windows.popup import Popup
 
-FORK_VERSION = "v1.0.6 (Beta)"
+FORK_VERSION = "v1.0.7 (Beta)"
 
 CHANGELOG_TEXT = (
-    "v1.0.6 (Beta)\n"
-    "• Finally Updated Original GitHub link to https://github.com/LOUDO2/PyMacroRecord/releases\n"
-    "• Updated The Change log section with complete v1.0.5 and v1.0.6 release notes cuz I keep forgetting\n"
-    "• Changed the Dialogue that pops up when you click the record button without saving your recording to \"Do you want to save your recording?\"\n"
-    "• Fixed the cursor not properly changing when hovering over UI buttons\n"
-    "• Moved the \"Clear\" button down to be on the left of \"Trim Moves\" instead of next to \"Apply\" \n"
-    "• Currently trying to remove the \"Services\" submenu on the app bar\n\n"
-    "v1.0.5 (Beta)\n"
+    'v1.0.7 (Beta)\n'
+    '• Reworked the janky, unreliable permission request screen when you first launch the app\n'
+    '• Added "Lyrro\'s Macro Recorder GitHub" button to the About section (takes you to the repository)\n\n'
+    'v1.0.6 (Beta)\n'
+    '• Finally Updated Original GitHub link to https://github.com/LOUDO2/PyMacroRecord/releases\n'
+    '• Updated The Change log section with complete v1.0.5 and v1.0.6 release notes cuz I keep forgetting\n'
+    '• Changed the Dialogue that pops up when you click the record button without saving your recording to "Do you want to save your recording?"\n'
+    '• Fixed the cursor not properly changing when hovering over UI buttons\n'
+    '• Moved the "Clear" button down to be on the left of "Trim Moves" instead of next to "Apply" \n'
+    '• Currently trying to remove the "Services" submenu on the app bar\n'
+    '\n'
+    'v1.0.5 (Beta)\n'
     "• Updated the upstream of PyMacroRecord's base to v1.4.7 (Bahasa Indonesia translation, Pillow 13.0.0, safer CLI macro file handling)\n"
-    "• Very Slightly Changed the UI spacing but not rlly :/ \n\n"
-    "v1.0.4 (Beta)\n"
-    "• Experimentally changed the Canvas lists with native Listbox controls for buttery two-finger trackpad scrolling in After Playback and Language (UI will look different after this change until I figure out how to fix it lmao)\n"
+    '• Very Slightly Changed the UI spacing but not rlly :/ \n'
+    '\n'
+    'v1.0.4 (Beta)\n'
+    '• Experimentally changed the Canvas lists with native Listbox controls for buttery two-finger trackpad scrolling in After Playback and Language (UI will look different after this change until I figure out how to fix it lmao)\n'
     "• Re-added command & modifier key colour-coding in Recorded Actions' logs (Cmd/Ctrl/Option/Shift/Fn in gold, keys in green, clicks in cyan)\n"
     "• Lyrro's Macro Recorder will not longer close via Cmd + Q while any menu, popup, or file dialog is open\n"
-    "• Fixed Original GitHub button to link directly to LOUDO56/PyMacroRecord (I lied I'm working on it sorry)\n\n"
-    "v1.0.3 (Beta)\n"
+    "• Fixed Original GitHub button to link directly to LOUDO56/PyMacroRecord (I lied I'm working on it sorry)\n"
+    '\n'
+    'v1.0.3 (Beta)\n'
     "• Completely redid After Playback settings' UI with native macOS controls & countdown delay presets (For the non nerds I just made the UI look nicer)\n"
     "• Wired After Playback Sleep, Log Out, Restart, and Shut Down actions to macOS System Events (This is Experimental, I'll prob be removing it in the near future)\n"
-    "• Rebuilt Language selector UI with native macOS controls & language codes\n"
-    "• Added a visible Close button to Changelog popup, previously you had to close the window from the top\n\n"
-    "v1.0.2 (Beta)\n"
-    "• Made bottom-right version badge clickable with hover underline to open About (Experimental)\n"
-    "• Added built-in Changelog viewer inside About (WIP)\n"
-    "• Fixed the text wrapping and layout sizing in the macOS Permissions popup (when LMR asks for permissions)\n\n"
-    "v1.0.1 (Beta)\n"
-    "• Added macOS startup Permissions onboarding & Settings Permissions manager\n"
-    "• Added version indicator to main window and Permissions dialog\n"
-    "• Packaged as standalone macOS app bundle\n\n"
-    "v1.0.0-beta.1 — Initial macOS Fork\n"
-    "• Completely rebuilt ui for PyMacroRecord\n"
-    "• Rebuilt UI for macOS dark mode with native-feeling controls\n"
-    "• Added live Recorded Actions list with Delete Step & Trim Moves\n"
-    "• Mapped macOS keycodes (<63>, <179>) to readable names (Fn)\n"
-    "• Added inline Loops counter, Infinite toggle, and custom Speed/Delay presets\n"
-    "• Moved Settings, Hotkeys, and About onto the main dashboard\n"
+    '• Rebuilt Language selector UI with native macOS controls & language codes\n'
+    '• Added a visible Close button to Changelog popup, previously you had to close the window from the top\n'
+    '\n'
+    'v1.0.2 (Beta)\n'
+    '• Made bottom-right version badge clickable with hover underline to open About (Experimental)\n'
+    '• Added built-in Changelog viewer inside About (WIP)\n'
+    '• Fixed the text wrapping and layout sizing in the macOS Permissions popup (when LMR asks for permissions)\n'
+    '\n'
+    'v1.0.1 (Beta)\n'
+    '• Added macOS startup Permissions onboarding & Settings Permissions manager\n'
+    '• Added version indicator to main window and Permissions dialog\n'
+    '• Packaged as standalone macOS app bundle\n'
+    '\n'
+    'v1.0.0-beta.1 — Initial macOS Fork\n'
+    '• Completely rebuilt ui for PyMacroRecord\n'
+    '• Rebuilt UI for macOS dark mode with native-feeling controls\n'
+    '• Added live Recorded Actions list with Delete Step & Trim Moves\n'
+    '• Mapped macOS keycodes (<63>, <179>) to readable names (Fn)\n'
+    '• Added inline Loops counter, Infinite toggle, and custom Speed/Delay presets\n'
+    '• Moved Settings, Hotkeys, and About onto the main dashboard'
 )
 
 
@@ -63,7 +72,7 @@ class ChangelogPopup(Popup):
 
 class About(Popup):
     def __init__(self, parent, main_app, version, updated):
-        super().__init__("About Lyrro's Macro Recorder", 500, 445, parent)
+        super().__init__("About Lyrro's Macro Recorder", 500, 485, parent)
         self.resizable(False, False)
         self.main_app = main_app
         self.main_app.about_window = self
@@ -79,8 +88,13 @@ class About(Popup):
         Label(card, text="Just to be clear, I didn't make the original program, This is a .app, however the original was a barebones Python executable. Full credit goes to LOUDO for creating PyMacroRecord. What I did with it is rebuilt the UI, changed the layout and overall appearance (mostly, still shares the same original window body) and added some more obvious features. The original PyMacroRecord was not built for macOS, so I decided to make this more native on this OS so you don't have to!", font=("Helvetica Neue", 10), foreground="#b0b0b0", wraplength=440, justify="center").pack(pady=(0, 8))
         Label(card, text="License: GPL v3.0", font=("Helvetica Neue", 10), foreground="#8e8e8e").pack(pady=(2, 4))
 
-        btns = Frame(self)
-        btns.pack(side="bottom", pady=(8, 16))
+        btns_wrap = Frame(self)
+        btns_wrap.pack(side="bottom", pady=(8, 16))
+        top_row = Frame(btns_wrap)
+        top_row.pack(side="top", pady=(0, 6))
+        Button(top_row, text="Lyrro's Macro Recorder Github", width=26, command=lambda: OpenUrl("https://github.com/lyrros/Lyrros-Macro-Recorder")).pack()
+        btns = Frame(btns_wrap)
+        btns.pack(side="top")
         Button(btns, text="Changelog", width=12, command=lambda: ChangelogPopup(self)).pack(side="left", padx=5)
         Button(btns, text="Original GitHub", width=14, command=lambda: OpenUrl("https://github.com/LOUDO2/PyMacroRecord/releases")).pack(side="left", padx=5)
         Button(btns, text="Close", width=10, command=self.destroy).pack(side="left", padx=5)
