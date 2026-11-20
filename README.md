@@ -7,7 +7,7 @@ keyboard and mouse actions.
 · [Tutorial](TUTORIAL.md)
 · [Report a bug](https://github.com/lyrros/Lyrros-Macro-Recorder/issues)
 
-![Lyrro's Macro Recorder main window](<img width="1396" height="1033" alt="Shotnix 2026-11-19 at 20 48 00" src="https://github.com/user-attachments/assets/cced309b-6a61-4d4b-8dd1-c91ee97068d4" />)
+![Lyrro's Macro Recorder main window](docs/screenshots/main-window-v1.0.8.png)
 )
 
 ## Features
