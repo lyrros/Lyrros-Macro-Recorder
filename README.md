@@ -8,7 +8,6 @@ keyboard and mouse actions.
 · [Report a bug](https://github.com/lyrros/Lyrros-Macro-Recorder/issues)
 
 ![Lyrro's Macro Recorder main window](docs/screenshots/main-window-v1.0.8.png)
-)
 
 ## Features
 
