@@ -3,9 +3,15 @@ from tkinter.ttk import Button, Frame, Label
 from webbrowser import open as OpenUrl
 from windows.popup import Popup
 
-FORK_VERSION = "v1.0.8 (Beta)"
+FORK_VERSION = "v1.0.9 (Beta)"
 
 CHANGELOG_TEXT = (
+    'v1.0.9 (Beta)\n'
+    '• Added an icon to the Menu Bar (for the normal people who aren’t nerds like me, that means the bar on top where the Apple logo is)\n'
+    '• Added a recording timer: This is in the same place that the new icon is, it shows your count in real time!\n'
+    '• Playback elapsed time option added: This is in settings, it acts the same way the recording indicator does but instead shows how long the macro has been running, along with whatever hotkeys you have set to start/stop the macro (May be bugged, still testing it)\n'
+    '• Clicking the menu bar icon opens a dropdown with two choices. Those being “Open Macro” which brings the macro window to the front instantly, and “Quit Macro” to close it instantly\n'
+    '\n'
     'v1.0.8 (Beta)\n'
     '• Updated Perms again: The permission screen now also shows Input Monitoring and the macOS permission used for sending playback events, also added a restart-to-apply button\n'
     '• Added a bring app to front toggle option in settings: LMR will now bring the window to the front no matter what if you toggle this on\n'

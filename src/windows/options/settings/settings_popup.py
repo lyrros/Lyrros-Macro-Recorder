@@ -35,6 +35,13 @@ class SettingsPopup(Popup):
         self._add_chk(body, "Always Import Macro Settings", menu.always_import_macro_settings, lambda: settings.change_settings("Loading", "Always_import_macro_settings"))
         self._add_chk(body, "Check for Updates on Startup", menu.Check_update, lambda: settings.change_settings("Others", "Check_update"))
 
+        Label(body, text="Menu Bar", font=("Helvetica Neue", 12, "bold"), foreground="#40C4FF").pack(anchor="w", pady=(10, 4))
+        mb = cfg.setdefault("Menu_Bar", {})
+        mb_status = BooleanVar(value=mb.get("Show_Status", True))
+        mb_play = BooleanVar(value=mb.get("Show_Playback_Timer", False))
+        self._add_chk(body, "Show Recording Timer in Menu Bar", mb_status, lambda: settings.change_settings("Menu_Bar", "Show_Status", None, mb_status.get()))
+        self._add_chk(body, "Show Playback Elapsed in Menu Bar", mb_play, lambda: settings.change_settings("Menu_Bar", "Show_Playback_Timer", None, mb_play.get()))
+
         sub_row = Frame(self)
         sub_row.pack(pady=(10, 4))
         Button(sub_row, text="Language", width=12, command=lambda: SelectLanguage(self, main_app)).pack(side="left", padx=4)

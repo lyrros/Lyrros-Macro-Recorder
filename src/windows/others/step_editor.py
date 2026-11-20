@@ -77,17 +77,47 @@ class StepEditor(Popup):
         self.pressed_check = Checkbutton(details, text="Pressed (unchecked means released)", variable=self.pressed_var)
         self.pressed_check.grid(row=3, column=0, columnspan=2, sticky="w", pady=(6, 2))
 
+        tracker = Frame(details)
+        tracker.grid(row=4, column=0, columnspan=2, sticky="w", pady=(12, 0))
+        Label(tracker, text="Live cursor:", font=("Helvetica Neue", 11), foreground="#9e9e9e").grid(row=0, column=0, sticky="w", padx=(0, 10))
+        self.live_xy = Label(tracker, text="0, 0", font=("Courier", 13, "bold"), foreground="#40C4FF", width=13, anchor="w")
+        self.live_xy.grid(row=0, column=1, sticky="w")
+        Button(tracker, text="Use This Position", width=17, command=self._capture_position).grid(row=0, column=2, padx=(10, 0))
+
         btns = Frame(self)
         btns.pack(side="bottom", pady=(4, 8))
         Button(btns, text="Save Step", width=11, command=self._save).pack(side="left", padx=4)
         Button(btns, text="Cancel", width=10, command=self.destroy).pack(side="left", padx=4)
         self._update_fields()
+        self.bind("<Return>", lambda e: self._capture_position())
+        try:
+            self.attributes("-topmost", True)
+        except Exception:
+            pass
         self.update_idletasks()
         width = 460
         height = max(330, self.winfo_reqheight() + 8)
         x = max(0, (self.winfo_screenwidth() - width) // 2)
-        y = max(0, (self.winfo_screenheight() - height) // 2)
+        y = 60
         self.geometry(f"{width}x{height}+{x}+{y}")
+        self._track_position()
+
+    def _track_position(self):
+        try:
+            if not self.winfo_exists():
+                return
+            self.live_xy.config(text=f"{self.winfo_pointerx()}, {self.winfo_pointery()}")
+        except Exception:
+            return
+        self.after(100, self._track_position)
+
+    def _capture_position(self):
+        try:
+            self.x_var.set(str(self.winfo_pointerx()))
+            self.y_var.set(str(self.winfo_pointery()))
+        except Exception:
+            pass
+        return "break"
 
     @staticmethod
     def _entry(parent, variable, width):
@@ -144,9 +174,12 @@ class StepEditor(Popup):
         events = self.main_app.macro.macro_events.setdefault("events", [])
         if self.step_index is not None and 0 <= self.step_index < len(events):
             events[self.step_index] = new_ev
+            self.main_app._pending_select = self.step_index
         else:
             selection = self.main_app.action_list.curselection()
-            events.insert((selection[-1] + 1) if selection else len(events), new_ev)
+            insert_at = (selection[-1] + 1) if selection else len(events)
+            events.insert(insert_at, new_ev)
+            self.main_app._pending_select = insert_at
         self.main_app.macro_recorded = bool(events)
         self.main_app.macro_saved = False
         self.main_app._last_ev_sig = None

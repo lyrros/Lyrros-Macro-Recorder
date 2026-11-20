@@ -7,7 +7,7 @@ from tkinter import messagebox
 from tkinter.ttk import Button, Checkbutton, Frame, Label
 from windows.popup import Popup
 
-APP_VERSION = "v1.0.8"
+APP_VERSION = "v1.0.9"
 
 
 def close_system_settings():
@@ -62,10 +62,11 @@ def check_macos_permissions():
 class PermissionsPopup(Popup):
     def __init__(self, parent, main_app, startup=True):
         title = "macOS Permissions Required" if startup else "macOS Permissions"
-        super().__init__(title, 635, 470 if startup else 420, parent)
+        super().__init__(title, 635, 488 if startup else 438, parent)
         self.resizable(False, False)
         self.main_app = main_app
         self._poll_job = None
+        self._rechecked = False
         self._settings_opened_by_us = False
         self._settings_closed_after_grant = False
         self._permissions_missing_when_settings_opened = False
@@ -88,7 +89,7 @@ class PermissionsPopup(Popup):
         self.im_lbl = Label(r1, text="", font=("Helvetica Neue", 11, "bold"))
         self.im_lbl.pack(side="left", padx=(10, 0))
         Button(card, text="Open Settings", width=16, command=lambda: self._open_settings("Privacy_ListenEvent")).grid(row=0, column=1, rowspan=2, sticky="e", padx=(16, 0), pady=4)
-        Label(card, text="Lets the app record keystrokes, mouse actions, and global hotkeys. If it isn't listed, add this app in Settings.", font=("Helvetica Neue", 10), foreground="#9e9e9e", wraplength=375, justify="left").grid(row=1, column=0, sticky="w", pady=(2, 12))
+        Label(card, text="Lets the app record keystrokes, mouse actions, and global hotkeys. If it isn't listed here, click Show App in Finder and drag the app into the list.", font=("Helvetica Neue", 10), foreground="#9e9e9e", wraplength=375, justify="left").grid(row=1, column=0, sticky="w", pady=(2, 12))
 
         r2 = Frame(card)
         r2.grid(row=2, column=0, sticky="w", pady=(4, 0))
@@ -107,7 +108,8 @@ class PermissionsPopup(Popup):
         Label(self, text=f"Lyrro's Macro Recorder  \u2022  {APP_VERSION}", font=("Helvetica Neue", 10), foreground="#6e6e6e").pack(side="bottom", pady=(0, 8))
         btns = Frame(self)
         btns.pack(side="bottom", pady=(6, 8))
-        Button(btns, text="Re-check Status", width=15, command=self._refresh).pack(side="left", padx=6)
+        Button(btns, text="Re-check Status", width=15, command=self._recheck).pack(side="left", padx=6)
+        Button(btns, text="Show App in Finder", width=18, command=self._show_app_in_finder).pack(side="left", padx=6)
         self.restart_btn = Button(btns, text="Restart to Apply", width=16, command=self._restart_app)
         self.restart_btn.pack(side="left", padx=6)
         Button(btns, text="Continue" if startup else "Done", width=12, command=self._close).pack(side="left", padx=6)
@@ -140,24 +142,34 @@ class PermissionsPopup(Popup):
         name = cls._post_permission_name().split(". ", 1)[-1]
         return f"Allows playback to send keyboard and mouse actions. Enable Lyrro's Macro Recorder in Privacy & Security > {name}."
 
+    def _show_app_in_finder(self):
+        try:
+            if getattr(sys, "frozen", False):
+                executable = os.path.abspath(sys.executable)
+                marker = f"{os.sep}Contents{os.sep}MacOS{os.sep}"
+                if marker in executable:
+                    bundle = executable.split(marker, 1)[0]
+                else:
+                    bundle = os.path.dirname(executable)
+                subprocess.run(["open", "-R", bundle], check=True, timeout=10)
+            else:
+                subprocess.run(
+                    ["open", os.path.dirname(os.path.abspath(__file__))],
+                    check=True,
+                    timeout=10,
+                )
+        except Exception as exc:
+            messagebox.showerror("Could not open Finder", str(exc), parent=self)
+
     def _open_settings(self, pane):
         if sys.platform != "darwin":
             messagebox.showinfo("macOS only", "These permissions are only available on macOS.", parent=self)
             return
         try:
             im_ok, post_ok = check_macos_permissions()
-            if pane == "Privacy_PostEvent" and not post_ok:
-                # Ask macOS to register this app for Event Control before
-                # navigating to its settings pane.
-                try:
-                    cg = ctypes.cdll.LoadLibrary(
-                        "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics"
-                    )
-                    request_post = cg.CGRequestPostEventAccess
-                    request_post.restype = ctypes.c_bool
-                    post_ok = bool(request_post())
-                except (AttributeError, OSError):
-                    pass
+            # CGRequestPostEventAccess() raises the macOS alert offering
+            # "Open System Settings" / "Deny". It is intentionally not
+            # called: this window opens the pane directly instead.
             self._permissions_missing_when_settings_opened = not (im_ok and post_ok)
             self._settings_closed_after_grant = False
 
@@ -255,11 +267,27 @@ class PermissionsPopup(Popup):
 
     def _refresh(self):
         im_ok, post_ok = check_macos_permissions()
-        self.im_lbl.config(text="\u25cf Granted" if im_ok else "\u25cf Missing", foreground="#4CAF50" if im_ok else "#FF5252")
-        self.post_lbl.config(text="\u25cf Granted" if post_ok else "\u25cf Missing", foreground="#4CAF50" if post_ok else "#FF5252")
+        # macOS caches the input-monitoring and post-event verdict for the
+        # life of the process, so a grant made while this window is open
+        # still reads as missing here until the app is relaunched.
+        stale = self._settings_opened_by_us or self._rechecked
+
+        def _state(ok):
+            if ok:
+                return "\u25cf Granted", "#4CAF50"
+            if stale:
+                return "\u25cf Restart required", "#FFB74D"
+            return "\u25cf Missing", "#FF5252"
+
+        im_text, im_colour = _state(im_ok)
+        post_text, post_colour = _state(post_ok)
+        self.im_lbl.config(text=im_text, foreground=im_colour)
+        self.post_lbl.config(text=post_text, foreground=post_colour)
         all_granted = im_ok and post_ok
         self._needs_restart = self._needs_restart or not all_granted
-        self.restart_btn.config(state="normal" if all_granted and self._needs_restart else "disabled")
+        self.restart_btn.config(
+            state="normal" if self._needs_restart and (all_granted or stale) else "disabled"
+        )
         if (
             all_granted
             and self._settings_opened_by_us
@@ -267,3 +295,7 @@ class PermissionsPopup(Popup):
             and not self._settings_closed_after_grant
         ):
             self._settings_closed_after_grant = close_system_settings()
+
+    def _recheck(self):
+        self._rechecked = True
+        self._refresh()

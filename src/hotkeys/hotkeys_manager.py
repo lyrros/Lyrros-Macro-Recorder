@@ -1,3 +1,4 @@
+import queue
 import time
 from tkinter import messagebox
 
@@ -5,6 +6,7 @@ from pynput import keyboard
 
 from utils.get_key_pressed import getKeyPressed, normalize_key
 from utils.keys import vk_nb
+from utils.key_names import FN_KEY_CODES
 
 
 class HotkeysManager:
@@ -19,14 +21,45 @@ class HotkeysManager:
         self.hotkeys = []
         self.hotkey_visible = []
         self.hotkey_detection = {}
-        self._triggered_hotkeys = set()
+        self._triggered_hotkeys = {}
         self.macro = main_app.macro
         self.hotkey_button = None
         self.type_of_hotkey = None
         self.entry_to_change = None
         self.changeKey = False
         self.index_to_change = 0
-        self.keyboard_listener.start()
+        self._actions = queue.Queue()
+        self._listener_started = False
+        # Creating a global keyboard tap without Input Monitoring makes
+        # macOS raise its own "would like to receive keystrokes" alert, so
+        # wait for the grant instead of provoking that prompt.
+        if self._listen_allowed():
+            self.keyboard_listener.start()
+            self._listener_started = True
+        else:
+            self.main_app.after(3000, self._start_listener_when_allowed)
+        self.main_app.after(120, self._drain_actions)
+
+    @staticmethod
+    def _listen_allowed():
+        try:
+            from windows.others.permissions_popup import check_macos_permissions
+            im_ok, _post = check_macos_permissions()
+            return bool(im_ok)
+        except Exception:
+            return True
+
+    def _start_listener_when_allowed(self):
+        if self._listener_started:
+            return
+        try:
+            if self._listen_allowed():
+                self.keyboard_listener.start()
+                self._listener_started = True
+            else:
+                self.main_app.after(3000, self._start_listener_when_allowed)
+        except Exception:
+            pass
 
     def enable_hot_key_detection(self, type_of_hotkey, entry_to_change, index):
         self.hotkey_button = entry_to_change
@@ -50,9 +83,13 @@ class HotkeysManager:
 
     def _prune_stale_keys(self):
         now = time.monotonic()
-        stale = [k for k, ts in self.hotkey_detection.items() if now - ts > 2.0]
+        stale = [k for k, ts in self.hotkey_detection.items() if now - ts > 0.7]
         for k in stale:
             del self.hotkey_detection[k]
+        # A missed key release must not wedge a hotkey forever.
+        stale_hotkeys = [k for k, ts in self._triggered_hotkeys.items() if now - ts > 1.5]
+        for k in stale_hotkeys:
+            del self._triggered_hotkeys[k]
 
     def __on_press(self, key):
         userSettings = self.settings.settings_dict
@@ -129,8 +166,8 @@ class HotkeysManager:
                 and not self.macro.record
                 and not self.macro.playback
             ):
-                self._triggered_hotkeys.add("Record_Start")
-                self.macro.start_record(True)
+                self._triggered_hotkeys["Record_Start"] = time.monotonic()
+                self._actions.put("start_record")
 
             elif (
                 "Record_Stop" not in self._triggered_hotkeys
@@ -138,8 +175,8 @@ class HotkeysManager:
                 and self.macro.record
                 and not self.macro.playback
             ):
-                self._triggered_hotkeys.add("Record_Stop")
-                self.macro.stop_record()
+                self._triggered_hotkeys["Record_Stop"] = time.monotonic()
+                self._actions.put("stop_record")
 
             elif (
                 "Playback_Start" not in self._triggered_hotkeys
@@ -148,8 +185,8 @@ class HotkeysManager:
                 and not self.macro.playback
                 and self.main_app.macro_recorded
             ):
-                self._triggered_hotkeys.add("Playback_Start")
-                self.macro.start_playback()
+                self._triggered_hotkeys["Playback_Start"] = time.monotonic()
+                self._actions.put("start_playback")
 
             elif (
                 "Playback_Stop" not in self._triggered_hotkeys
@@ -157,8 +194,28 @@ class HotkeysManager:
                 and not self.macro.record
                 and self.macro.playback
             ):
-                self._triggered_hotkeys.add("Playback_Stop")
-                self.macro.stop_playback(True)
+                self._triggered_hotkeys["Playback_Stop"] = time.monotonic()
+                self._actions.put("stop_playback")
+
+    def _drain_actions(self):
+        """Run macro actions on the Tk main thread, not pynput's listener thread."""
+        try:
+            while True:
+                action = self._actions.get_nowait()
+                try:
+                    if action == "start_record":
+                        self.macro.start_record(True)
+                    elif action == "stop_record":
+                        self.macro.stop_record()
+                    elif action == "start_playback":
+                        self.macro.start_playback()
+                    elif action == "stop_playback":
+                        self.macro.stop_playback(True)
+                except Exception:
+                    pass
+        except queue.Empty:
+            pass
+        self.main_app.after(120, self._drain_actions)
 
     def __on_release(self, key):
         key_released = getKeyPressed(self.keyboard_listener, key)
@@ -169,7 +226,7 @@ class HotkeysManager:
             for hk_name in list(self._triggered_hotkeys):
                 hk_keys = {normalize_key(k) for k in hotkeys.get(hk_name, [])}
                 if norm_key in hk_keys or not hk_keys:
-                    self._triggered_hotkeys.discard(hk_name)
+                    self._triggered_hotkeys.pop(hk_name, None)
         else:
             self._triggered_hotkeys.clear()
 
@@ -177,4 +234,14 @@ class HotkeysManager:
         if not hotkey_config or not isinstance(hotkey_config, list):
             return False
         required = {normalize_key(k) for k in hotkey_config}
-        return required == detected_keys
+        # macOS reports Fn inconsistently, so fn+F3 must behave exactly like F3
+        # whether or not the saved binding happened to capture the Fn key.
+        required -= FN_KEY_CODES
+        detected_keys = set(detected_keys) - FN_KEY_CODES
+        if required == detected_keys:
+            return True
+        # A held or stale key (usually a modifier, or a release macOS never
+        # delivered) must not block a function-key hotkey. Text keys keep
+        # exact matching so Cmd+S cannot fire an "s" hotkey.
+        non_text = all(str(k).startswith(("Key.", "<")) for k in required)
+        return non_text and required.issubset(detected_keys)

@@ -46,6 +46,9 @@ class MainApp(Window):
         self.menu = MenuBar(self)
         self.macro = Macro(self)
         self.hotkeyManager = HotkeysManager(self)
+        from windows.menu_bar_status import MenuBarStatus
+        self.menu_bar_status = MenuBarStatus(self)
+        self._playback_started = None
         self.current_file = None
         self.macro_recorded = False
         self.macro_saved = False
@@ -91,7 +94,7 @@ class MainApp(Window):
         bottom_bar.pack(side=BOTTOM, fill=X)
         self.status_text = Label(bottom_bar, text="Ready", relief="flat", anchor=W, padding=(10, 4), font=("Helvetica Neue", 11), foreground="#b0b0b0")
         self.status_text.pack(side=LEFT, fill=X, expand=True)
-        ver_lbl = Label(bottom_bar, text="v1.0.8", relief="flat", anchor="e", padding=(10, 4), font=("Helvetica Neue", 11, "bold"), foreground="#8e8e8e", cursor="pointinghand")
+        ver_lbl = Label(bottom_bar, text="v1.0.9", relief="flat", anchor="e", padding=(10, 4), font=("Helvetica Neue", 11, "bold"), foreground="#8e8e8e", cursor="pointinghand")
         ver_lbl.pack(side=RIGHT)
 
         self.playImg = PhotoImage(file=resource_path(path.join("assets", "button", "play.png")))
@@ -254,24 +257,62 @@ class MainApp(Window):
         self._last_ev_sig = None
         self._refresh_coords()
         self._refresh_dashboard()
+        # Tk on macOS plays the system alert sound when a key press reaches the
+        # window with no binding; that is what happens to the stop hotkey just as
+        # we pull the window forward after recording. Mark keys as handled.
+        try:
+            self.bind_all("<KeyPress>", lambda event: None, add="+")
+            self.bind_all("<KeyRelease>", lambda event: None, add="+")
+        except Exception:
+            pass
         self.geometry("700x490")
+        # Never let the window shrink below the size it opens in.
+        self.minsize(700, 490)
         if sys.platform == "darwin":
             self.after(100, self._bring_main_window_forward)
         self.mainloop()
 
+    @staticmethod
+    def _menubar_log(message):
+        try:
+            from datetime import datetime
+            log_path = path.join(path.expanduser("~"), "Desktop", "lyrro_menubar.log")
+            with open(log_path, "a", encoding="utf-8") as handle:
+                handle.write("%s %s\n" % (datetime.now().strftime("%H:%M:%S"), message))
+        except Exception:
+            pass
+
     def _bring_main_window_forward(self):
+        self._menubar_log("bring forward")
         if sys.platform == "darwin":
             try:
                 from AppKit import NSApplication, NSApplicationActivationPolicyRegular
                 ns_app = NSApplication.sharedApplication()
-                ns_app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
-                ns_app.activateIgnoringOtherApps_(True)
+                if not getattr(self, "_activation_policy_set", False):
+                    ns_app.setActivationPolicy_(NSApplicationActivationPolicyRegular)
+                    self._activation_policy_set = True
+                # Re-activating an already active app on the same run-loop tick
+                # as a hotkey release makes macOS play its alert sound ("boop").
+                if not ns_app.isActive():
+                    ns_app.activateIgnoringOtherApps_(True)
             except Exception:
                 pass
         try:
             self.deiconify()
             self.lift()
-            self.focus_force()
+            if sys.platform == "darwin":
+                # Forcing focus on a window that became visible in this same
+                # tick is the other half of that alert; let it settle first.
+                self.after(140, self._focus_main_window)
+            else:
+                self.focus_force()
+        except Exception:
+            pass
+
+    def _focus_main_window(self):
+        try:
+            if self.winfo_exists() and self.winfo_viewable():
+                self.focus_set()
         except Exception:
             pass
 
@@ -327,6 +368,16 @@ class MainApp(Window):
     def _clear_macro(self):
         if self.macro.record or self.macro.playback:
             return
+        if self.macro.macro_events.get("events"):
+            from tkinter import messagebox
+            title = self.text_content.get("global", {}).get("confirm", "Confirm")
+            if not messagebox.askyesno(title, "Clear this recording? This cannot be undone.", parent=self):
+                return
+        if self.macro.macro_events.get("events"):
+            from tkinter import messagebox
+            title = self.text_content.get("global", {}).get("confirm", "Confirm")
+            if not messagebox.askyesno(title, "Clear this recording? This cannot be undone.", parent=self):
+                return
         self.macro.macro_events = {"events": []}
         self.macro_recorded = False
         self.macro_saved = True
@@ -354,6 +405,7 @@ class MainApp(Window):
         new_idx = idx + delta
         if 0 <= idx < len(evs) and 0 <= new_idx < len(evs):
             evs[idx], evs[new_idx] = evs[new_idx], evs[idx]
+            self._pending_select = new_idx
             self.macro_saved = False
             self._last_ev_sig = None
 
@@ -381,6 +433,7 @@ class MainApp(Window):
             for idx in reversed(valid_indices):
                 evs.pop(idx)
             self.macro_recorded = bool(evs)
+            self._pending_select = min(min(valid_indices), max(0, len(evs) - 1))
             self.macro_saved = False
             self._last_ev_sig = None
             self.playBtn.configure(state=NORMAL if evs else DISABLED, command=self.macro.start_playback)
@@ -388,24 +441,35 @@ class MainApp(Window):
     def _refresh_coords(self):
         try:
             x, y = self.winfo_pointerx(), self.winfo_pointery()
-            self.coord_lbl.config(text=f"Cursor: X={x} Y={y}")
+            text = f"Cursor: X={x} Y={y}"
+            if text != getattr(self, "_last_coord_text", None):
+                self._last_coord_text = text
+                self.coord_lbl.config(text=text)
         except Exception:
             pass
-        self.after(30, self._refresh_coords)
+        self.after(66, self._refresh_coords)
 
     @staticmethod
     def _fmt_key(k):
         return format_key_name(k)
 
     def _refresh_dashboard(self):
-        if self.macro.record:
-            self.status_badge.config(text="● RECORDING...", foreground="#FF5252")
-        elif self.macro.playback:
-            self.status_badge.config(text="▶ PLAYING...", foreground="#40C4FF")
-        else:
-            self.status_badge.config(text="● READY", foreground="#4CAF50")
+        if getattr(self, "_open_requested", False):
+            self._open_requested = False
+            try:
+                self._bring_main_window_forward()
+            except Exception:
+                pass
+        badge = ((u"● RECORDING...", "#FF5252") if self.macro.record else
+                 (u"▶ PLAYING...", "#40C4FF") if self.macro.playback else
+                 (u"● READY", "#4CAF50"))
+        if badge != getattr(self, "_last_badge", None):
+            self._last_badge = badge
+            self.status_badge.config(text=badge[0], foreground=badge[1])
         f = path.basename(self.current_file) if self.current_file else ("Unsaved Recording" if self.macro_recorded else "None")
-        self.file_lbl.config(text=f"Loaded: {f}")
+        if f != getattr(self, "_last_file_text", None):
+            self._last_file_text = f
+            self.file_lbl.config(text=f"Loaded: {f}")
         evs = self.macro.macro_events.get("events", [])
         sig = (len(evs), str(evs[-1]) if evs else "")
         if sig != self._last_ev_sig:
@@ -437,7 +501,35 @@ class MainApp(Window):
                 else:
                     self.action_list.itemconfig(i, fg="#4FC3F7")
             if evs:
-                self.action_list.see(END)
+                pending = getattr(self, "_pending_select", None)
+                if pending is not None and 0 <= pending < len(evs):
+                    self.action_list.selection_set(pending)
+                    self.action_list.see(pending)
+                    self._pending_select = None
+                else:
+                    self.action_list.see(END)
+        try:
+            if self.macro.playback:
+                if self._playback_started is None:
+                    self._playback_started = time()
+                    self._menubar_log("playback started")
+            else:
+                if self._playback_started is not None:
+                    self._menubar_log("playback ended")
+                self._playback_started = None
+            mbs = getattr(self, "menu_bar_status", None)
+            if not mbs:
+                self._menubar_log("menu_bar_status is None")
+            if mbs:
+                rec_started = getattr(self.macro, "record_started_at", None)
+                recording_now = bool(self.macro.record and rec_started)
+                rec = (time() - rec_started) if recording_now else 0.0
+                ply = (time() - self._playback_started) if self._playback_started else 0.0
+                mbs.update(self.macro.record, getattr(self.macro, "counting_down", False),
+                           getattr(self.macro, "countdown_left", 0), self.macro.playback, rec, ply)
+        except Exception:
+            import traceback
+            self._menubar_log("menubar block error:\n" + traceback.format_exc())
         self.after(120, self._refresh_dashboard)
 
 
@@ -450,6 +542,8 @@ class MainApp(Window):
         return any(isinstance(w, Toplevel) and w.winfo_exists() for w in self.winfo_children())
 
     def quit_software(self, force=False):
+        if getattr(self, "_quitting", False):
+            return
         if not force and self._has_open_modal():
             try:
                 self.status_text.configure(text="Close the open dialog before quitting")
@@ -464,6 +558,40 @@ class MainApp(Window):
                     self.macro.stop_record()
         except Exception:
             pass
+        self._finish_quit()
+
+    def _finish_quit(self):
+        """Quit through AppKit so macOS does not record an abnormal exit.
+
+        Leaving from inside a Tcl callback (sys.exit, or Tk.destroy) is what
+        produced the "quit unexpectedly" dialog. NSApplication.terminate_ runs
+        the normal quit sequence and exits with status 0.
+        """
+        if getattr(self, "_quitting", False):
+            return
+        self._quitting = True
+        self._menubar_log("quit: start")
+        try:
+            status_bar = getattr(self, "menu_bar_status", None)
+            if status_bar is not None:
+                status_bar.remove()
+            self._menubar_log("quit: status item removed")
+        except Exception as exc:
+            self._menubar_log("quit: status remove failed %r" % (exc,))
+        if sys.platform == "darwin":
+            self._menubar_log("quit: terminating")
+            try:
+                from AppKit import NSApplication
+                NSApplication.sharedApplication().terminate_(None)
+                self._menubar_log("quit: terminate returned")
+            except Exception as exc:
+                self._menubar_log("quit: terminate failed %r" % (exc,))
+            try:
+                import os
+                self._menubar_log("quit: exiting")
+                os._exit(0)
+            except Exception:
+                pass
         try:
             self.destroy()
         except Exception:

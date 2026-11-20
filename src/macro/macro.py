@@ -1,4 +1,4 @@
-from utils.key_names import format_key_name as _fmt_key
+from utils.key_names import FN_KEY_CODES, format_key_name as _fmt_key
 
 from datetime import datetime
 from sys import platform
@@ -10,7 +10,7 @@ from pynput import keyboard, mouse
 from pynput.keyboard import Key  # FUTURE SELF: DON'T REMOVE THIS!!
 from pynput.mouse import Button
 
-from utils.get_key_pressed import getKeyPressed, resolve_key_for_playback
+from utils.get_key_pressed import getKeyPressed, normalize_key, resolve_key_for_playback
 from utils.keys import vk_nb
 from utils.macos_keyboard_compat import prepare_pynput_keyboard_listener
 from utils.record_file_management import RecordFileManagement
@@ -41,12 +41,25 @@ class Macro:
         self.keyboard_listener = None
         self.mouse_listener = None
         self.time = time()
+        self.record_started_at = None
         self.event_delta_time=0
 
         self.keyboard_listener = keyboard.Listener(
                 on_press=self.__on_press, on_release=self.__on_release
             )
-        self.keyboard_listener.start()
+        # Same reason as the hotkey listener: no global event tap before
+        # Input Monitoring is granted, or macOS raises its own alert.
+        if self._keyboard_listener_allowed():
+            self.keyboard_listener.start()
+
+    @staticmethod
+    def _keyboard_listener_allowed():
+        try:
+            from windows.others.permissions_popup import check_macos_permissions
+            im_ok, _post = check_macos_permissions()
+            return bool(im_ok)
+        except Exception:
+            return True
 
     def start_record(self, by_hotkey=False):
         if self.main_app.prevent_record:
@@ -70,6 +83,9 @@ class Macro:
         self.macro_events = {"events": []}
         self.record = True
         self.time = time()
+        # self.time is advanced by every recorded event, so the elapsed-time
+        # display needs its own start stamp.
+        self.record_started_at = self.time
         self.event_delta_time=0
         userSettings = self.user_settings.settings_dict
         self.showEventsOnStatusBar = userSettings["Recordings"]["Show_Events_On_Status_Bar"]
@@ -115,6 +131,7 @@ class Macro:
     def _run_countdown(self, remaining, by_hotkey=False):
         if not self.counting_down:
             return
+        self.countdown_left = remaining
         if remaining <= 0:
             self.counting_down = False
             self.start_record(by_hotkey=True)
@@ -134,6 +151,7 @@ class Macro:
         userSettings = self.user_settings.settings_dict
         self.record = False
         self.counting_down = False
+        self.record_started_at = None
         if self.mouseBeingListened:
             self.mouse_listener.stop()
             self.mouseBeingListened = False
@@ -477,9 +495,30 @@ class Macro:
         if self.showEventsOnStatusBar:
             self.main_app.status_text.configure(text=f"scrollEvent {int(dx)} {int(dy)}")
 
+    def _is_hotkey_key(self, key_pressed):
+        """True for keys bound to a macro hotkey, which must stay out of the recording."""
+        if not (self.record or self.playback) or key_pressed is None:
+            return False
+        target = normalize_key(key_pressed)
+        # Fn is only ever a modifier used to reach an F-key or media key, so it
+        # must never become an event of its own in the macro.
+        if target in FN_KEY_CODES:
+            return True
+        try:
+            hotkeys = self.user_settings.settings_dict.get("Hotkeys", {})
+        except Exception:
+            return False
+        for name in ("Record_Start", "Record_Stop", "Playback_Start", "Playback_Stop"):
+            for bound in hotkeys.get(name) or []:
+                if normalize_key(bound) == target:
+                    return True
+        return False
+
     def __on_press(self, key):
         self.__get_event_delta_time()
         keyPressed = getKeyPressed(self.keyboard_listener, key)
+        if self._is_hotkey_key(keyPressed):
+            return
         if self.keyboardBeingListened:
             self.__record_event(
                 {
@@ -494,6 +533,8 @@ class Macro:
     def __on_release(self, key):
         self.__get_event_delta_time()
         keyPressed = getKeyPressed(self.keyboard_listener, key)
+        if self._is_hotkey_key(keyPressed):
+            return
         if self.keyboardBeingListened:
             self.__record_event(
                 {

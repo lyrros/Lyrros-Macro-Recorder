@@ -1,5 +1,8 @@
 """Friendly display names and input aliases for pynput keyboard keys."""
 
+# Keys macOS reports while Fn is held on keyboards without standard function keys.
+FN_KEY_CODES = {"<63>", "<179>", "Key.fn"}
+
 KEY_LABELS = {
     "Key.cmd": "Command", "Key.cmd_l": "Command", "Key.cmd_r": "Command",
     "Key.ctrl": "Control", "Key.ctrl_l": "Control", "Key.ctrl_r": "Control",

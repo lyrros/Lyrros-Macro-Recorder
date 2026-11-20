@@ -33,9 +33,30 @@ class Popup(Toplevel):
         if platform == "win32":
             self.attributes("-toolwindow", 1)
         elif platform == "darwin":
-            # Keep dialogs above their parent while Lyrro's Macro Recorder is
-            # active, without pinning them above other applications.
-            self.transient(parent)
+            # transient() groups this window with its parent, which made
+            # title-bar dragging stutter on Tk 9.0. Without it the window
+            # can open behind the main one, so raise it once it is mapped.
+            self.after(50, self._raise_to_front)
         else:
             self.attributes("-topmost", 1)
-        self.grab_set()
+        if platform != "darwin":
+            # A local grab makes title-bar dragging stutter on macOS.
+            self.grab_set()
+
+    def _raise_to_front(self):
+        try:
+            if not self.winfo_exists():
+                return
+            self.lift()
+            self.focus_force()
+            self.attributes("-topmost", True)
+            self.after(400, self._drop_topmost)
+        except Exception:
+            pass
+
+    def _drop_topmost(self):
+        try:
+            if self.winfo_exists():
+                self.attributes("-topmost", False)
+        except Exception:
+            pass

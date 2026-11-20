@@ -87,7 +87,12 @@ class UserSettings:
                 "Check_update": True,
                 "Fixed_timestamp": 0,
                 "Remind_new_ver_at": 0,
-            }
+            },
+
+            "Menu_Bar": {
+                "Show_Status": True,
+                "Show_Playback_Timer": False,
+            },
         }
 
         userSettings_json = dumps(userSettings, indent=4)
@@ -167,5 +172,8 @@ class UserSettings:
         userSettings["Minimization"].setdefault("When_Playing", False)
         userSettings["Minimization"].setdefault("When_Recording", False)
         userSettings["Minimization"].setdefault("Bring_to_Front_After_Recording", True)
+        userSettings.setdefault("Menu_Bar", {})
+        userSettings["Menu_Bar"].setdefault("Show_Status", True)
+        userSettings["Menu_Bar"].setdefault("Show_Playback_Timer", False)
         userSettings.pop("After_Playback", None)
         self.update_settings()
